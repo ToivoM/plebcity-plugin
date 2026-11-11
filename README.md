@@ -1,107 +1,102 @@
 # Plebcity
 
-RuneLite plugin for the **Plebcity** Old School RuneScape clan. It connects your game client to the
-Plebcity clan bot (a Discord bot with a small HTTP API, run by the clan).
+The RuneLite plugin of the **Plebcity** Old School RuneScape clan. It connects your game client to the
+clan's own Discord bot, so that you see clan broadcasts and clan events in game.
 
-## What it does
+**The plugin does nothing over the network until you enter a link code from a clan admin.**
+It never sends anything to the game server on your behalf: no chat messages, no menu actions, no input.
 
-- **Account linking.** A clan admin creates a one-time code in Discord (`/link`). You paste it into the
-  plugin settings, and the plugin swaps it for a personal token that is stored in your RuneLite profile.
-- **Clan broadcasts.** When *Receive broadcasts* is on, the plugin keeps a request open to the API
-  (long polling), so broadcasts sent by clan admins in Discord arrive within about a second. Each new broadcast is shown:
-  - in your chatbox as `[Plebcity] ...`
-  - in a box above the chatbox (*Broadcast overlay*, on by default). The box closes after
-    *Broadcast duration* (30 s by default). You can also close it with its **X** button or the
-    right-click option **Dismiss**. If several broadcasts arrive, they are shown one at a time with a
-    counter such as `1/3`.
-  - as a RuneLite notification, if *Notify on broadcast* is on (off by default).
+## Features
 
-  These messages are only shown locally. Nobody else sees them, and nothing is typed or sent in game.
-  Only broadcasts less than 5 minutes old are shown above the chatbox or as notifications. Older ones,
-  such as those sent while you were logged out, go to the chatbox only, with their age:
-  `[Plebcity] (3 h ago) message`. If more than 5 older broadcasts arrive at once, only the 5 newest are
-  shown, after a line such as `[Plebcity] + 3 older broadcasts`. The server never sends broadcasts older
-  than 24 hours (configurable by the clan).
-- **Clan events panel.** A yellow "PLEB" button in the sidebar opens a list of the clan's Discord events,
-  grouped as *Live now*, *Upcoming* and *Past* (last 30 days). Each event shows its time in your own
-  time zone, how long until it starts or ends, the location, and a description. Click a card to see the
-  full description. The list is loaded when you open the panel and every 5 minutes, but only when your
-  account is linked. You can hide the button with *Events panel*.
-- **Clan coffer tracking** (off by default, setting *Report clan coffer events*). When a clan member
-  deposits to or withdraws from the clan coffer, the game sends a clan broadcast to everyone in clan chat,
-  for example `ToivoM has deposited 1,000,000 coins into the coffer.` When this setting is on and you are
-  linked, the plugin reports these broadcasts to the clan bot. Several members may report the same event,
-  and the server removes the duplicates. The player who deposits does not need the plugin.
-- **Debug logging** (off by default). Writes chat messages and varbit changes to the RuneLite client log,
-  on your own machine only. This helps with development. Debug output is never sent anywhere, and the
-  plugin never sends raw clan chat messages to the API. It only sends the parsed coffer event.
+- **Clan broadcasts.** Clan admins send broadcasts in Discord (`/broadcast`). With *Receive broadcasts*
+  on, new broadcasts appear within about a second:
+  - in your chatbox as `[Plebcity] ...`, shown only to you
+  - in a box above the chatbox (*Broadcast overlay*). It closes by itself after *Broadcast duration*
+    (default 30 s), with its **X** button, or with the right-click option **Dismiss**. Several broadcasts
+    are shown one at a time with a counter such as `1/3`. Only broadcasts less than 5 minutes old are
+    shown here; older ones (for example those sent while you were logged out) go to the chatbox only,
+    with their age: `[Plebcity] (3 h ago) message`.
+  - as a RuneLite notification, if *Notify on broadcast* is on (off by default)
+- **Clan events panel.** A "PLEB" button in the sidebar lists the clan's Discord events as
+  *Live now*, *Upcoming* and *Past*, with times in your own time zone. Click an event to see its full
+  description.
+- **Clan coffer reporting (optional, off by default).** When a clan member deposits to or withdraws
+  from the clan coffer, the game shows a clan broadcast to everyone in clan chat, for example
+  `ToivoM has deposited 1,000,000 coins into the coffer.` With *Report clan coffer events* on, the
+  plugin reports these to the clan bot, which posts them to the clan's Discord admin channel.
 
-The plugin **never** sends anything to the game server for you: no chat messages, no menu actions, no input.
+## Getting started
 
-## What data is sent, and where
+1. Install **Plebcity** from the Plugin Hub.
+2. Ask a Plebcity clan admin for a link code. They create it in Discord with `/link`; it works once and
+   expires in 15 minutes.
+3. Log in to the game, open the Plebcity settings and paste the code into **Link code**. The plugin
+   links your account, shows `[Plebcity] Account linked to the Plebcity clan bot.` and clears the field.
+4. Turn on **Receive broadcasts**, and **Report clan coffer events** if your clan asks you to.
 
-All requests go **only** to the API URL set in the plugin settings (by default `https://api.osrsplebcity.com`), which is the clan's own server.
-That server is not run, controlled or verified by RuneLite or Jagex.
+## Settings
 
-| When | Request | Data sent |
-|------|---------|-----------|
-| You enter a link code | `POST /api/link` | the link code and your RuneScape name (RSN) |
-| While you are logged in, *Receive broadcasts* is on and you are linked: one request is kept open at a time (up to 25 s each, then the next one starts) | `GET /api/broadcasts/wait?since=<id>&timeout=25` | your token and the ID of the last broadcast you saw |
-| When you open the events panel, and every 5 min, if *Events panel* is on and you are linked | `GET /api/events` | your token |
-| A coffer deposit/withdrawal is broadcast in clan chat, *Report clan coffer events* is on and you are linked | `POST /api/events/coffer` | your token and the parsed event (see below) |
+| Setting | Default | Contacts the server |
+|---------|---------|---------------------|
+| Link code | empty | Once, when you enter a code |
+| Receive broadcasts | off | Yes, while logged in and linked |
+| Broadcast overlay | on | No (display only) |
+| Broadcast duration | 30 s | No |
+| Notify on broadcast | off | No |
+| Events panel | on | Yes, but only after you have linked |
+| Report clan coffer events | off | Yes, when a coffer broadcast appears in clan chat |
+| Advanced → API URL | `https://api.osrsplebcity.com` | Where all requests go |
 
-### Clan coffer events
+## Data sent to a third-party server
 
-When *Report clan coffer events* is on, the plugin sends exactly these fields for each coffer broadcast:
+All requests go **only** to `https://api.osrsplebcity.com` (or the *API URL* under *Advanced*). This
+server belongs to the Plebcity clan. It is **not run, controlled or verified by RuneLite or Jagex**.
+Like any web request, every request shows your **IP address** to that server.
 
-| Field | Example | Meaning |
-|-------|---------|---------|
-| `type` | `deposit` or `withdraw` | whether coins went into or out of the coffer |
-| `player` | `ToivoM` | the name of the clan member who deposited or withdrew (often not you) |
-| `amount` | `1000000` | number of coins |
-| `clientTime` | `1794429148000` | your computer's clock time in milliseconds |
+**Before you enter a link code, the plugin makes no network requests at all.** Every other request
+needs the personal token you get by linking.
 
-This data comes **only** from the clan's own broadcast messages ("... has deposited/withdrawn ... coins
-into/from the coffer."). The game already shows these broadcasts to every clan member who is in clan chat.
-The plugin does not read or send any other chat messages, including other players' clan chat
-messages. It never sends the raw message text, only the four fields above.
+| When | Request | What is sent |
+|------|---------|--------------|
+| You enter a link code (once) | `POST /api/link` | the code and your RuneScape name (RSN) |
+| *Receive broadcasts* is on, you are logged in and linked | `GET /api/broadcasts/wait` (one request kept open at a time) | your token and the ID of the last broadcast you saw |
+| *Events panel* is on and you are linked: when you open the panel and every 5 minutes | `GET /api/events` | your token |
+| *Report clan coffer events* is on, you are linked, and a coffer broadcast appears in clan chat | `POST /api/events/coffer` | your token, the type (deposit or withdraw), the clan member's name and the amount from that broadcast, and your computer's clock time |
 
-Like any HTTP request, every call shows your **IP address** to the server. The server stores your RSN,
-a hash of your token, and the coffer events you report. Admins can see this data in Discord.
+About the coffer data:
 
-No requests are made until you enter a link code or turn on *Receive broadcasts* or
-*Report clan coffer events*. Both settings are off by default.
+- It comes **only** from the clan's own system broadcast (`... has deposited/withdrawn N coins
+  into/from the coffer.`), which the game already shows to every clan member in clan chat.
+- The plugin ignores every other chat message, including all messages written by players. It never
+  sends the raw message text, only the fields above.
+- Several clan members may report the same broadcast; the server counts it once.
 
-## Installation
+What the server stores:
 
-1. In RuneLite, open the **Plugin Hub** and search for **Plebcity**. Install it.
-2. Open the plugin settings:
-   - **API URL**: `https://api.osrsplebcity.com` by default. Change it only if your clan admin tells you to
-     (for example `http://localhost:8000` for a bot running on your own machine during development).
-   - **Link code**: the code from `/link`. Log in to the game, and the plugin links your account and
-     then clears the field.
-   - **Receive broadcasts**: turn it on to get clan broadcasts in chat and above the chatbox.
-   - **Events panel**: on by default. Shows the clan events button in the sidebar.
-   - **Report clan coffer events**: turn it on to report clan coffer deposits and withdrawals to the
-     clan bot.
+- your RSN and a SHA-256 **hash** of your token (never the token itself)
+- the coffer events reported by clan members
+- broadcasts and Discord events created by clan admins
 
-## Development
+Your token is stored in your RuneLite profile. If the server rejects it, the plugin forgets it and
+asks you to link again.
+
+## Building
 
 Requires JDK 11 or newer.
 
 ```bash
-./gradlew build      # compile and test
+./gradlew build      # compile and run the tests
 ./gradlew run        # start RuneLite in developer mode with this plugin loaded
 ```
 
-The icons (`icon.png` for the Plugin Hub and the 16x16 sidebar icon) are generated with RuneLite's own
-RuneScape font by `tools/generate-icons.sh`. Run `tools/generate-icons.sh preview` for 8x previews in
-`tools/preview/`, or `tools/generate-icons.sh install b none two` to regenerate the current icons.
-The `tools/` folder is not part of the plugin jar.
+`./gradlew run` runs `com.plebcity.PlebcityPluginTest`. To log in with a Jagex account in the
+development client, see <https://github.com/runelite/runelite/wiki/Using-Jagex-Accounts>.
 
-`./gradlew run` runs `com.plebcity.PlebcityPluginTest`, which loads the plugin into a development
-RuneLite client. To log in with a Jagex account, see
-<https://github.com/runelite/runelite/wiki/Using-Jagex-Accounts>.
+The icons are generated with RuneLite's own RuneScape font by `tools/generate-icons.sh`
+(`tools/generate-icons.sh install b none two` recreates the current ones). The `tools/` folder is not
+part of the plugin jar.
+
+The server side (Discord bot and API) is in a separate repository.
 
 ## License
 

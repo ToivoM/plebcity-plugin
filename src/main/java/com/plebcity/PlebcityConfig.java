@@ -3,6 +3,7 @@ package com.plebcity;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
+import net.runelite.client.config.ConfigSection;
 import net.runelite.client.config.Range;
 import net.runelite.client.config.Units;
 
@@ -13,23 +14,25 @@ public interface PlebcityConfig extends Config
 
 	String THIRD_PARTY_WARNING = "This feature submits your IP address to a 3rd-party server not controlled or verified by RuneLite developers";
 
-	@ConfigItem(
-		keyName = "apiUrl",
-		name = "API URL",
-		description = "Address of the Plebcity clan bot API",
-		position = 1
+	/** Appended to the description of every setting that makes the plugin contact the Plebcity server. */
+	String IP_NOTE = " Your IP address is visible to the Plebcity server (a third-party server, not run by RuneLite).";
+
+	@ConfigSection(
+		name = "Advanced",
+		description = "Settings you normally don't need to change",
+		position = 100,
+		closedByDefault = true
 	)
-	default String apiUrl()
-	{
-		return "https://api.osrsplebcity.com";
-	}
+	String ADVANCED_SECTION = "advanced";
 
 	@ConfigItem(
 		keyName = "linkCode",
 		name = "Link code",
-		description = "One-time code from a clan admin (Discord /link). Cleared automatically after a successful link.",
+		description = "One-time code from a Plebcity clan admin (Discord /link). Nothing is sent anywhere until you enter one."
+			+ " When you enter it, your RuneScape name is sent to the Plebcity server to link your account."
+			+ " Cleared automatically after a successful link." + IP_NOTE,
 		warning = THIRD_PARTY_WARNING,
-		position = 2
+		position = 1
 	)
 	default String linkCode()
 	{
@@ -39,9 +42,10 @@ public interface PlebcityConfig extends Config
 	@ConfigItem(
 		keyName = "showAnnouncements",
 		name = "Receive broadcasts",
-		description = "Receive clan broadcasts (Discord /broadcast) from the Plebcity API as they are sent and show them in your chatbox",
+		description = "Receive clan broadcasts (Discord /broadcast) from the Plebcity server while you are logged in"
+			+ " and linked, and show them in your chatbox." + IP_NOTE,
 		warning = THIRD_PARTY_WARNING,
-		position = 3
+		position = 2
 	)
 	default boolean showAnnouncements()
 	{
@@ -52,7 +56,7 @@ public interface PlebcityConfig extends Config
 		keyName = "showBroadcastOverlay",
 		name = "Broadcast overlay",
 		description = "Also show new broadcasts in a box above the chatbox",
-		position = 4
+		position = 3
 	)
 	default boolean showBroadcastOverlay()
 	{
@@ -65,7 +69,7 @@ public interface PlebcityConfig extends Config
 		keyName = "broadcastDurationSeconds",
 		name = "Broadcast duration",
 		description = "How long a broadcast stays above the chatbox",
-		position = 5
+		position = 4
 	)
 	default int broadcastDurationSeconds()
 	{
@@ -76,7 +80,7 @@ public interface PlebcityConfig extends Config
 		keyName = "notifyOnBroadcast",
 		name = "Notify on broadcast",
 		description = "Send a RuneLite notification when a new broadcast arrives",
-		position = 6
+		position = 5
 	)
 	default boolean notifyOnBroadcast()
 	{
@@ -86,8 +90,9 @@ public interface PlebcityConfig extends Config
 	@ConfigItem(
 		keyName = "showEventsPanel",
 		name = "Events panel",
-		description = "Show the Plebcity events button in the sidebar. Events are loaded only when your account is linked.",
-		position = 7
+		description = "Show the Plebcity events button in the sidebar. Events are loaded from the Plebcity server"
+			+ " only when your account is linked." + IP_NOTE,
+		position = 6
 	)
 	default boolean showEventsPanel()
 	{
@@ -97,9 +102,10 @@ public interface PlebcityConfig extends Config
 	@ConfigItem(
 		keyName = "reportCoffer",
 		name = "Report clan coffer events",
-		description = "Send clan coffer deposits and withdrawals announced in clan chat (player name, amount, type) to the Plebcity API",
+		description = "Send clan coffer deposits and withdrawals from the clan's own broadcast in clan chat"
+			+ " (player name, amount, deposit/withdraw) to the Plebcity server." + IP_NOTE,
 		warning = THIRD_PARTY_WARNING,
-		position = 8
+		position = 7
 	)
 	default boolean reportCoffer()
 	{
@@ -107,13 +113,14 @@ public interface PlebcityConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "debugLogChat",
-		name = "Debug: log chat & varbits",
-		description = "Write every chat message and varbit/varp change to the client log (for development)",
-		position = 9
+		keyName = "apiUrl",
+		name = "API URL",
+		description = "Address of the Plebcity server. Change only if a Plebcity clan admin asks you to." + IP_NOTE,
+		section = ADVANCED_SECTION,
+		position = 101
 	)
-	default boolean debugLogChat()
+	default String apiUrl()
 	{
-		return false;
+		return "https://api.osrsplebcity.com";
 	}
 }

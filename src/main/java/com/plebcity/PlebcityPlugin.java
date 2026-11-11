@@ -3,7 +3,6 @@ package com.plebcity;
 import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
 import com.google.gson.annotations.SerializedName;
-import com.google.common.collect.ImmutableSet;
 import com.google.inject.Provides;
 import java.awt.Color;
 import java.io.IOException;
@@ -13,7 +12,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -27,7 +25,6 @@ import net.runelite.api.Player;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
-import net.runelite.api.events.VarbitChanged;
 import net.runelite.client.Notifier;
 import net.runelite.client.chat.ChatMessageManager;
 import net.runelite.client.chat.QueuedMessage;
@@ -61,8 +58,8 @@ import okhttp3.ResponseBody;
 @Slf4j
 @PluginDescriptor(
 	name = "Plebcity",
-	description = "Plebcity clan tools: clan announcements in chat and Discord bot linking",
-	tags = {"clan", "discord", "plebcity"}
+	description = "Plebcity clan tools: clan broadcasts from Discord, clan events panel and optional clan coffer reporting",
+	tags = {"clan", "discord", "coffer", "events", "broadcast", "plebcity"}
 )
 public class PlebcityPlugin extends Plugin
 {
@@ -80,12 +77,6 @@ public class PlebcityPlugin extends Plugin
 	private static final String KEY_LAST_ANNOUNCEMENT_ID = "lastAnnouncementId";
 	/** The API URL that KEY_LAST_ANNOUNCEMENT_ID belongs to; ids from another server are not used. */
 	private static final String KEY_LAST_ANNOUNCEMENT_API = "lastAnnouncementApi";
-
-	// Debug log: clock-like vars that change constantly and are never interesting.
-	private static final Set<Integer> IGNORED_VARPS = ImmutableSet.of(1042, 3077, 3078, 3079);
-	private static final Set<Integer> IGNORED_VARBITS = ImmutableSet.of(8354, 12391, 12392);
-	/** Debug log: don't log var changes this soon after logging in (the client receives hundreds then). */
-	private static final long VAR_LOG_LOGIN_GRACE_MILLIS = 5_000;
 
 	@Inject
 	private Client client;
@@ -138,8 +129,6 @@ public class PlebcityPlugin extends Plugin
 	private volatile boolean linkInFlight;
 	/** Client thread only: whether the next LOGGED_IN state is a fresh login (or world hop). */
 	private boolean loggingIn;
-	/** Client thread only: when we last finished logging in, used to mute the burst of var changes at login. */
-	private long loggedInAtMillis;
 
 	@Override
 	protected void startUp()
@@ -229,7 +218,6 @@ public class PlebcityPlugin extends Plugin
 			if (loggingIn)
 			{
 				loggingIn = false;
-				loggedInAtMillis = System.currentTimeMillis();
 				// Give RuneLite a moment to switch to this account's profile, where the token is stored.
 				executor.schedule(this::fetchEvents, 5, TimeUnit.SECONDS);
 				executor.schedule(this::updateBroadcastPolling, 5, TimeUnit.SECONDS);
@@ -302,51 +290,30 @@ public class PlebcityPlugin extends Plugin
 		}
 	}
 
+	/**
+	 * Clan coffer reporting. Only the clan's own system broadcast (CLAN_MESSAGE) is looked at; players'
+	 * chat messages are ignored. Only the parsed event (type, player, amount) is ever sent, and only
+	 * when "Report clan coffer events" is on and the account is linked; never the raw message.
+	 */
 	@Subscribe
 	public void onChatMessage(ChatMessage event)
 	{
-		final boolean debug = config.debugLogChat();
-		if (debug)
-		{
-			// Opt-in diagnostics, written to the local client log only.
-			log.info("[Plebcity debug] chat type={} name={} message={}",
-				event.getType(), event.getName(), event.getMessage());
-		}
-
-		if (event.getType() != ChatMessageType.CLAN_MESSAGE)
+		if (event.getType() != ChatMessageType.CLAN_MESSAGE || !config.reportCoffer())
 		{
 			return;
 		}
 
-		// Only the parsed coffer event (type, player, amount) is ever sent to the API, never the raw message.
 		CofferMessageParser.CofferEvent coffer = CofferMessageParser.parse(event.getMessage());
 		if (coffer != null)
 		{
-			if (config.reportCoffer())
-			{
-				sendCofferEvent(coffer);
-			}
+			sendCofferEvent(coffer);
 		}
-		else if (debug && event.getMessage() != null
+		else if (event.getMessage() != null
 			&& CofferMessageParser.clean(event.getMessage()).toLowerCase().contains("coffer"))
 		{
-			// In case Jagex changes the message format.
-			log.info("[Plebcity debug] unrecognised coffer message: {}", event.getMessage());
+			// In case Jagex changes the message format. Debug level: not in normal client logs.
+			log.debug("Plebcity unrecognised coffer message: {}", event.getMessage());
 		}
-	}
-
-	@Subscribe
-	public void onVarbitChanged(VarbitChanged event)
-	{
-		if (!config.debugLogChat()
-			|| System.currentTimeMillis() - loggedInAtMillis < VAR_LOG_LOGIN_GRACE_MILLIS
-			|| IGNORED_VARPS.contains(event.getVarpId())
-			|| IGNORED_VARBITS.contains(event.getVarbitId()))
-		{
-			return;
-		}
-		log.info("[Plebcity debug] var varbitId={} varpId={} value={}",
-			event.getVarbitId(), event.getVarpId(), event.getValue());
 	}
 
 	// ------------------------------------------------------------------
