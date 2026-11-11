@@ -148,7 +148,7 @@ public class PlebcityPlugin extends Plugin
 		eventsPanel.setOnOpen(() -> executor.execute(this::fetchEvents));
 		eventsButton = NavigationButton.builder()
 			.tooltip("Plebcity events")
-			.icon(ImageUtil.loadImageResource(PlebcityPlugin.class, "events_icon.png"))
+			.icon(ImageUtil.loadImageResource(PlebcityPlugin.class, "plebcity_icon.png"))
 			.priority(8)
 			.panel(eventsPanel)
 			.build();

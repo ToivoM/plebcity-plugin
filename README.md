@@ -18,7 +18,7 @@ Plebcity clan bot (a Discord bot with a small HTTP API, run by the clan).
 
   These messages are only shown locally. Nobody else sees them, and nothing is typed or sent in game.
   The first time you poll after linking, the latest few broadcasts are shown in the chatbox only.
-- **Clan events panel.** A calendar button in the sidebar opens a list of the clan's Discord events,
+- **Clan events panel.** A yellow "PLEB" button in the sidebar opens a list of the clan's Discord events,
   grouped as *Live now*, *Upcoming* and *Past* (last 30 days). Each event shows its time in your own
   time zone, how long until it starts or ends, the location, and a description. Click a card to see the
   full description. The list is loaded when you open the panel and every 5 minutes, but only when your
@@ -88,6 +88,11 @@ Requires JDK 11 or newer.
 ./gradlew build      # compile and test
 ./gradlew run        # start RuneLite in developer mode with this plugin loaded
 ```
+
+The icons (`icon.png` for the Plugin Hub and the 16x16 sidebar icon) are generated with RuneLite's own
+RuneScape font by `tools/generate-icons.sh`. Run `tools/generate-icons.sh preview` for 8x previews in
+`tools/preview/`, or `tools/generate-icons.sh install b none two` to regenerate the current icons.
+The `tools/` folder is not part of the plugin jar.
 
 `./gradlew run` runs `com.plebcity.PlebcityPluginTest`, which loads the plugin into a development
 RuneLite client. To log in with a Jagex account, see

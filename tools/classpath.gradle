@@ -1,0 +1,9 @@
+// Gradle init script used by tools/generate-icons.sh: prints the test runtime classpath
+// (which includes the RuneLite client and its fonts) without changing build.gradle.
+allprojects {
+	tasks.register('printIconToolClasspath') {
+		doLast {
+			println 'CP=' + sourceSets.test.runtimeClasspath.asPath
+		}
+	}
+}
