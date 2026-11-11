@@ -21,7 +21,7 @@ public interface PlebcityConfig extends Config
 	)
 	default String apiUrl()
 	{
-		return "http://localhost:8000";
+		return "https://api.osrsplebcity.com";
 	}
 
 	@ConfigItem(

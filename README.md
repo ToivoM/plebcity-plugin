@@ -40,7 +40,7 @@ The plugin **never** sends anything to the game server for you: no chat messages
 
 ## What data is sent, and where
 
-All requests go **only** to the API URL set in the plugin settings, which is the clan's own server.
+All requests go **only** to the API URL set in the plugin settings (by default `https://api.osrsplebcity.com`), which is the clan's own server.
 That server is not run, controlled or verified by RuneLite or Jagex.
 
 | When | Request | Data sent |
@@ -76,7 +76,8 @@ No requests are made until you enter a link code or turn on *Receive broadcasts*
 
 1. In RuneLite, open the **Plugin Hub** and search for **Plebcity**. Install it.
 2. Open the plugin settings:
-   - **API URL**: the address your clan admin gives you.
+   - **API URL**: `https://api.osrsplebcity.com` by default. Change it only if your clan admin tells you to
+     (for example `http://localhost:8000` for a bot running on your own machine during development).
    - **Link code**: the code from `/link`. Log in to the game, and the plugin links your account and
      then clears the field.
    - **Receive broadcasts**: turn it on to get clan broadcasts in chat and above the chatbox.
