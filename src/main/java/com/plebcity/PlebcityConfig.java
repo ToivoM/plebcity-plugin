@@ -39,7 +39,7 @@ public interface PlebcityConfig extends Config
 	@ConfigItem(
 		keyName = "showAnnouncements",
 		name = "Receive broadcasts",
-		description = "Fetch clan broadcasts (Discord /broadcast) from the Plebcity API every 60 seconds and show them in your chatbox",
+		description = "Receive clan broadcasts (Discord /broadcast) from the Plebcity API as they are sent and show them in your chatbox",
 		warning = THIRD_PARTY_WARNING,
 		position = 3
 	)

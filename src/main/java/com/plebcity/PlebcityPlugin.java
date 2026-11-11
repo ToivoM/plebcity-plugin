@@ -67,7 +67,11 @@ import okhttp3.ResponseBody;
 public class PlebcityPlugin extends Plugin
 {
 	private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
-	private static final long POLL_INTERVAL_SECONDS = 60;
+	/** The server holds a long poll for up to this long; the read timeout must be longer. */
+	private static final int LONG_POLL_SECONDS = 25;
+	private static final long LONG_POLL_READ_TIMEOUT_SECONDS = 35;
+	private static final long BACKOFF_INITIAL_MILLIS = 5_000;
+	private static final long BACKOFF_MAX_MILLIS = 60_000;
 	private static final long EVENTS_REFRESH_SECONDS = 5 * 60;
 	static final Color PLEBCITY_COLOR = new Color(0x00, 0x8C, 0xFF);
 
@@ -117,7 +121,7 @@ public class PlebcityPlugin extends Plugin
 	@Inject
 	private ClientToolbar clientToolbar;
 
-	private ScheduledFuture<?> pollFuture;
+	private BroadcastPoller broadcastPoller;
 	private ScheduledFuture<?> eventsFuture;
 	private EventsPanel eventsPanel;
 	private NavigationButton eventsButton;
@@ -130,7 +134,6 @@ public class PlebcityPlugin extends Plugin
 	/** Last code we tried, so a bad code isn't retried over and over. */
 	private volatile String lastAttemptedCode;
 	private volatile boolean linkInFlight;
-	private volatile boolean pollInFlight;
 	/** Client thread only: whether the next LOGGED_IN state is a fresh login (or world hop). */
 	private boolean loggingIn;
 	/** Client thread only: when we last finished logging in, used to mute the burst of var changes at login. */
@@ -142,7 +145,28 @@ public class PlebcityPlugin extends Plugin
 		linkCheckPending = true;
 		overlayManager.add(broadcastOverlay);
 		mouseManager.registerMouseListener(broadcastOverlay.mouseListener);
-		pollFuture = executor.scheduleWithFixedDelay(this::pollAnnouncements, 10, POLL_INTERVAL_SECONDS, TimeUnit.SECONDS);
+		// A copy of RuneLite's client with a read timeout longer than the server's 25 s wait.
+		OkHttpClient longPollClient = httpClient.newBuilder()
+			.readTimeout(LONG_POLL_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+			.build();
+		broadcastPoller = new BroadcastPoller(longPollClient, gson, executor,
+			new Backoff(BACKOFF_INITIAL_MILLIS, BACKOFF_MAX_MILLIS),
+			this::getLastAnnouncementId, this::broadcastWaitRequest, new BroadcastPoller.Listener()
+		{
+			@Override
+			public void onBroadcasts(List<BroadcastPoller.Broadcast> broadcasts, long since)
+			{
+				handleBroadcasts(broadcasts, since);
+			}
+
+			@Override
+			public void onUnauthorized()
+			{
+				handleUnauthorized();
+			}
+		});
+		// In case the plugin is turned on while already logged in.
+		executor.schedule(this::updateBroadcastPolling, 2, TimeUnit.SECONDS);
 
 		eventsPanel = new EventsPanel();
 		eventsPanel.setOnOpen(() -> executor.execute(this::fetchEvents));
@@ -163,11 +187,7 @@ public class PlebcityPlugin extends Plugin
 	@Override
 	protected void shutDown()
 	{
-		if (pollFuture != null)
-		{
-			pollFuture.cancel(true);
-			pollFuture = null;
-		}
+		broadcastPoller.stop();
 		if (eventsFuture != null)
 		{
 			eventsFuture.cancel(true);
@@ -210,11 +230,13 @@ public class PlebcityPlugin extends Plugin
 				loggedInAtMillis = System.currentTimeMillis();
 				// Give RuneLite a moment to switch to this account's profile, where the token is stored.
 				executor.schedule(this::fetchEvents, 5, TimeUnit.SECONDS);
+				executor.schedule(this::updateBroadcastPolling, 5, TimeUnit.SECONDS);
 			}
 		}
 		else if (state == GameState.LOGIN_SCREEN)
 		{
 			rsn = null;
+			broadcastPoller.stop();
 			eventsPanel.showStatus(EventsPanel.Status.NOT_LOGGED_IN);
 		}
 	}
@@ -258,6 +280,12 @@ public class PlebcityPlugin extends Plugin
 		if ("showBroadcastOverlay".equals(event.getKey()) && !config.showBroadcastOverlay())
 		{
 			broadcastOverlay.clear();
+		}
+		if ("showAnnouncements".equals(event.getKey()) || "apiUrl".equals(event.getKey()))
+		{
+			// Restart so a new API URL is used right away.
+			broadcastPoller.stop();
+			executor.execute(this::updateBroadcastPolling);
 		}
 		if ("linkCode".equals(event.getKey()) || "apiUrl".equals(event.getKey()))
 		{
@@ -357,6 +385,7 @@ public class PlebcityPlugin extends Plugin
 			configManager.unsetConfiguration(PlebcityConfig.GROUP, "linkCode");
 			showLocalMessage("Account linked to the Plebcity clan bot.");
 			executor.execute(this::fetchEvents);
+			executor.execute(this::updateBroadcastPolling);
 			log.debug("Plebcity linked as {}", name);
 		}, status ->
 		{
@@ -378,74 +407,80 @@ public class PlebcityPlugin extends Plugin
 	}
 
 	// ------------------------------------------------------------------
-	// Announcements
+	// Broadcasts (long polling)
 	// ------------------------------------------------------------------
 
-	/** Runs on the shared executor, never on the client thread. */
-	private void pollAnnouncements()
+	/**
+	 * Runs the broadcast long poll only while it is wanted: Receive broadcasts is on, the player is
+	 * logged in and the account is linked. Safe to call from any thread except the client thread.
+	 */
+	private void updateBroadcastPolling()
 	{
 		try
 		{
-			if (!config.showAnnouncements() || rsn == null || pollInFlight)
+			boolean wanted = config.showAnnouncements()
+				&& client.getGameState() == GameState.LOGGED_IN
+				&& configManager.getRSProfileKey() != null
+				&& getToken() != null
+				&& apiUrl("api/broadcasts/wait") != null;
+			if (wanted)
 			{
-				return;
+				broadcastPoller.start();
 			}
-			final String token = getToken();
-			if (token == null)
+			else
 			{
-				return;
+				broadcastPoller.stop();
 			}
-			HttpUrl base = apiUrl("api/announcements");
-			if (base == null)
-			{
-				return;
-			}
-			final long since = getLastAnnouncementId();
-			HttpUrl url = base.newBuilder().addQueryParameter("since", Long.toString(since)).build();
-			Request request = new Request.Builder()
-				.url(url)
-				.header("Authorization", "Bearer " + token)
-				.get()
-				.build();
-
-			pollInFlight = true;
-			enqueue(request, "announcements", responseBody ->
-			{
-				Announcement[] list = gson.fromJson(responseBody, Announcement[].class);
-				if (list == null)
-				{
-					return;
-				}
-				long maxId = since;
-				// The first poll after linking returns the latest few broadcasts as a backlog:
-				// put those in the chatbox only, not in the overlay or notifications.
-				final boolean backlog = since == 0;
-				for (Announcement a : list)
-				{
-					if (a == null || a.id <= since || a.text == null)
-					{
-						continue;
-					}
-					showBroadcast(a.text, backlog);
-					maxId = Math.max(maxId, a.id);
-				}
-				if (maxId > since)
-				{
-					configManager.setRSProfileConfiguration(PlebcityConfig.GROUP, KEY_LAST_ANNOUNCEMENT_ID, Long.toString(maxId));
-				}
-			}, status ->
-			{
-				if (status == 401)
-				{
-					handleUnauthorized();
-				}
-			}, () -> pollInFlight = false);
 		}
 		catch (Exception e)
 		{
-			// Never let an exception kill the scheduled task.
-			pollInFlight = false;
-			log.warn("Plebcity announcement poll failed", e);
+			log.warn("Plebcity could not update broadcast polling", e);
+		}
+	}
+
+	/** Builds the long-poll request, or null if polling isn't possible right now. */
+	private Request broadcastWaitRequest(long since)
+	{
+		if (!config.showAnnouncements())
+		{
+			return null;
+		}
+		String token = getToken();
+		HttpUrl base = apiUrl("api/broadcasts/wait");
+		if (token == null || base == null)
+		{
+			return null;
+		}
+		HttpUrl url = base.newBuilder()
+			.addQueryParameter("since", Long.toString(since))
+			.addQueryParameter("timeout", Integer.toString(LONG_POLL_SECONDS))
+			.build();
+		return new Request.Builder()
+			.url(url)
+			.header("Authorization", "Bearer " + token)
+			.get()
+			.build();
+	}
+
+	/** Called on an OkHttp thread with broadcasts newer than since. */
+	private void handleBroadcasts(List<BroadcastPoller.Broadcast> broadcasts, long since)
+	{
+		long maxId = since;
+		// The first response after linking returns the latest few broadcasts as a backlog:
+		// put those in the chatbox only, not in the overlay or notifications.
+		final boolean backlog = since == 0;
+		for (BroadcastPoller.Broadcast b : broadcasts)
+		{
+			if (b == null || b.id <= since || b.text == null)
+			{
+				continue;
+			}
+			showBroadcast(b.text, backlog);
+			maxId = Math.max(maxId, b.id);
+		}
+		if (maxId > since)
+		{
+			configManager.setRSProfileConfiguration(PlebcityConfig.GROUP, KEY_LAST_ANNOUNCEMENT_ID, Long.toString(maxId));
 		}
 	}
 
@@ -548,6 +583,7 @@ public class PlebcityPlugin extends Plugin
 			return; // already handled by another request
 		}
 		log.warn("Plebcity token rejected by API; clearing it");
+		broadcastPoller.stop();
 		configManager.unsetRSProfileConfiguration(PlebcityConfig.GROUP, KEY_TOKEN);
 		showLocalMessage("Your Plebcity link is no longer valid. Enter a new link code in the plugin settings.");
 		eventsPanel.showStatus(EventsPanel.Status.NOT_LINKED);
@@ -730,12 +766,6 @@ public class PlebcityPlugin extends Plugin
 	private static class LinkResponse
 	{
 		String token;
-	}
-
-	private static class Announcement
-	{
-		long id;
-		String text;
 	}
 
 	private static class EventsResponse

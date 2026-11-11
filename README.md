@@ -7,8 +7,8 @@ Plebcity clan bot (a Discord bot with a small HTTP API, run by the clan).
 
 - **Account linking.** A clan admin creates a one-time code in Discord (`/link`). You paste it into the
   plugin settings, and the plugin swaps it for a personal token that is stored in your RuneLite profile.
-- **Clan broadcasts.** When *Receive broadcasts* is on, the plugin asks the API for new broadcasts
-  (sent by clan admins in Discord) every 60 seconds. Each new broadcast is shown:
+- **Clan broadcasts.** When *Receive broadcasts* is on, the plugin keeps a request open to the API
+  (long polling), so broadcasts sent by clan admins in Discord arrive within about a second. Each new broadcast is shown:
   - in your chatbox as `[Plebcity] ...`
   - in a box above the chatbox (*Broadcast overlay*, on by default). The box closes after
     *Broadcast duration* (30 s by default). You can also close it with its **X** button or the
@@ -42,7 +42,7 @@ That server is not run, controlled or verified by RuneLite or Jagex.
 | When | Request | Data sent |
 |------|---------|-----------|
 | You enter a link code | `POST /api/link` | the link code and your RuneScape name (RSN) |
-| Every 60 s, if *Receive broadcasts* is on and you are linked | `GET /api/announcements?since=<id>` | your token and the ID of the last announcement you saw |
+| While you are logged in, *Receive broadcasts* is on and you are linked: one request is kept open at a time (up to 25 s each, then the next one starts) | `GET /api/broadcasts/wait?since=<id>&timeout=25` | your token and the ID of the last broadcast you saw |
 | When you open the events panel, and every 5 min, if *Events panel* is on and you are linked | `GET /api/events` | your token |
 | A coffer deposit/withdrawal is broadcast in clan chat, *Report clan coffer events* is on and you are linked | `POST /api/events/coffer` | your token and the parsed event (see below) |
 
