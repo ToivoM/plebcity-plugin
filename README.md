@@ -17,7 +17,11 @@ Plebcity clan bot (a Discord bot with a small HTTP API, run by the clan).
   - as a RuneLite notification, if *Notify on broadcast* is on (off by default).
 
   These messages are only shown locally. Nobody else sees them, and nothing is typed or sent in game.
-  The first time you poll after linking, the latest few broadcasts are shown in the chatbox only.
+  Only broadcasts less than 5 minutes old are shown above the chatbox or as notifications. Older ones,
+  such as those sent while you were logged out, go to the chatbox only, with their age:
+  `[Plebcity] (3 h ago) message`. If more than 5 older broadcasts arrive at once, only the 5 newest are
+  shown, after a line such as `[Plebcity] + 3 older broadcasts`. The server never sends broadcasts older
+  than 24 hours (configurable by the clan).
 - **Clan events panel.** A yellow "PLEB" button in the sidebar opens a list of the clan's Discord events,
   grouped as *Live now*, *Upcoming* and *Past* (last 30 days). Each event shows its time in your own
   time zone, how long until it starts or ends, the location, and a description. Click a card to see the

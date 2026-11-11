@@ -2,8 +2,11 @@ package com.plebcity;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
+import com.google.gson.annotations.SerializedName;
 import java.io.IOException;
+import java.time.Instant;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -30,12 +33,18 @@ final class BroadcastPoller
 	{
 		long id;
 		String text;
+		/** ISO 8601 UTC; missing from older servers. */
+		@SerializedName("created_at")
+		String createdAt;
 	}
 
 	interface Listener
 	{
-		/** New broadcasts for a request made with the given since id. Called on an OkHttp thread. */
-		void onBroadcasts(List<Broadcast> broadcasts, long since);
+		/**
+		 * New broadcasts for a request made with the given since id. serverNow is the server's time from
+		 * the response's Date header (or the local time without one). Called on an OkHttp thread.
+		 */
+		void onBroadcasts(List<Broadcast> broadcasts, long since, Instant serverNow);
 
 		/** The API rejected the token. The loop has already stopped. */
 		void onUnauthorized();
@@ -179,7 +188,9 @@ final class BroadcastPoller
 					Broadcast[] list = gson.fromJson(body == null ? "[]" : body.string(), Broadcast[].class);
 					if (list != null && list.length > 0)
 					{
-						listener.onBroadcasts(Arrays.asList(list), sinceId);
+						Date date = r.headers().getDate("Date");
+						Instant serverNow = date != null ? date.toInstant() : Instant.now();
+						listener.onBroadcasts(Arrays.asList(list), sinceId, serverNow);
 					}
 					synchronized (BroadcastPoller.this)
 					{

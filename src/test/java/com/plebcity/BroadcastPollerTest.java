@@ -6,10 +6,16 @@ import static org.junit.Assert.assertTrue;
 import com.google.gson.Gson;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -20,6 +26,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -45,6 +52,8 @@ public class BroadcastPollerTest
 	private final List<String> received = new CopyOnWriteArrayList<>();
 	private final AtomicInteger unauthorized = new AtomicInteger();
 	private final AtomicLong since = new AtomicLong();
+	private final List<String> createdAt = new CopyOnWriteArrayList<>();
+	private final AtomicReference<Instant> lastServerNow = new AtomicReference<>();
 	private BroadcastPoller poller;
 
 	@Before
@@ -81,11 +90,13 @@ public class BroadcastPollerTest
 			new BroadcastPoller.Listener()
 			{
 				@Override
-				public void onBroadcasts(List<BroadcastPoller.Broadcast> broadcasts, long sinceId)
+				public void onBroadcasts(List<BroadcastPoller.Broadcast> broadcasts, long sinceId, Instant serverNow)
 				{
+					lastServerNow.set(serverNow);
 					for (BroadcastPoller.Broadcast b : broadcasts)
 					{
 						received.add(b.text);
+						createdAt.add(b.createdAt);
 						since.set(Math.max(since.get(), b.id));
 					}
 				}
@@ -150,6 +161,69 @@ public class BroadcastPollerTest
 		assertEquals(0, requests.get(0)[1]);
 		assertEquals("second request continues from the newest id", 2, requests.get(1)[1]);
 		assertTrue("next request starts immediately", requests.get(1)[0] - requests.get(0)[0] < 1_000);
+	}
+
+	@Test
+	public void passesCreatedAtAndTheServerTimeFromTheDateHeader() throws Exception
+	{
+		// The JDK HttpServer always writes its own Date header, so this test uses a raw socket to send
+		// one fixed response with a chosen Date, then holds further requests open.
+		try (ServerSocket raw = new ServerSocket(0, 50, InetAddress.getByName("127.0.0.1")))
+		{
+			Thread serverThread = new Thread(() ->
+			{
+				try (Socket socket = raw.accept())
+				{
+					BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.US_ASCII));
+					String line;
+					while ((line = in.readLine()) != null && !line.isEmpty())
+					{
+						// skip request line and headers
+					}
+					String body = "[{\"id\": 1, \"text\": \"hi\", \"created_at\": \"2025-11-14T16:58:00Z\"}]";
+					String response = "HTTP/1.1 200 OK\r\n"
+						+ "Date: Fri, 14 Nov 2025 17:00:00 GMT\r\n"
+						+ "Content-Type: application/json\r\n"
+						+ "Content-Length: " + body.getBytes(StandardCharsets.UTF_8).length + "\r\n"
+						+ "Connection: close\r\n\r\n" + body;
+					socket.getOutputStream().write(response.getBytes(StandardCharsets.UTF_8));
+					socket.getOutputStream().flush();
+					raw.accept(); // the next long poll: keep it open until the test ends
+				}
+				catch (IOException e)
+				{
+					// test finished
+				}
+			});
+			serverThread.setDaemon(true);
+			serverThread.start();
+
+			HttpUrl url = HttpUrl.parse("http://127.0.0.1:" + raw.getLocalPort() + "/api/broadcasts/wait");
+			BroadcastPoller p = new BroadcastPoller(client, new Gson(), executor, new Backoff(50, 400), since::get,
+				s -> new Request.Builder().url(url).build(), new BroadcastPoller.Listener()
+				{
+					@Override
+					public void onBroadcasts(List<BroadcastPoller.Broadcast> broadcasts, long sinceId, Instant serverNow)
+					{
+						lastServerNow.set(serverNow);
+						broadcasts.forEach(b -> createdAt.add(b.createdAt));
+					}
+
+					@Override
+					public void onUnauthorized()
+					{
+					}
+				});
+			p.start();
+			long deadline = System.currentTimeMillis() + 5_000;
+			while (lastServerNow.get() == null && System.currentTimeMillis() < deadline)
+			{
+				Thread.sleep(10);
+			}
+			p.stop();
+			assertEquals(java.util.Collections.singletonList("2025-11-14T16:58:00Z"), createdAt);
+			assertEquals(Instant.parse("2025-11-14T17:00:00Z"), lastServerNow.get());
+		}
 	}
 
 	@Test
@@ -243,7 +317,7 @@ public class BroadcastPollerTest
 			new BroadcastPoller.Listener()
 			{
 				@Override
-				public void onBroadcasts(List<BroadcastPoller.Broadcast> broadcasts, long sinceId)
+				public void onBroadcasts(List<BroadcastPoller.Broadcast> broadcasts, long sinceId, Instant serverNow)
 				{
 				}
 

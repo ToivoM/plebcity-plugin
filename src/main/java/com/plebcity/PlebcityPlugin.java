@@ -154,9 +154,9 @@ public class PlebcityPlugin extends Plugin
 			this::getLastAnnouncementId, this::broadcastWaitRequest, new BroadcastPoller.Listener()
 		{
 			@Override
-			public void onBroadcasts(List<BroadcastPoller.Broadcast> broadcasts, long since)
+			public void onBroadcasts(List<BroadcastPoller.Broadcast> broadcasts, long since, Instant serverNow)
 			{
-				handleBroadcasts(broadcasts, since);
+				handleBroadcasts(broadcasts, since, serverNow);
 			}
 
 			@Override
@@ -463,20 +463,34 @@ public class PlebcityPlugin extends Plugin
 	}
 
 	/** Called on an OkHttp thread with broadcasts newer than since. */
-	private void handleBroadcasts(List<BroadcastPoller.Broadcast> broadcasts, long since)
+	private void handleBroadcasts(List<BroadcastPoller.Broadcast> broadcasts, long since, Instant serverNow)
 	{
 		long maxId = since;
-		// The first response after linking returns the latest few broadcasts as a backlog:
-		// put those in the chatbox only, not in the overlay or notifications.
-		final boolean backlog = since == 0;
+		List<BroadcastDelivery.Item> items = new ArrayList<>();
 		for (BroadcastPoller.Broadcast b : broadcasts)
 		{
 			if (b == null || b.id <= since || b.text == null)
 			{
 				continue;
 			}
-			showBroadcast(b.text, backlog);
+			items.add(new BroadcastDelivery.Item(b.id, b.text, parseInstant(b.createdAt)));
 			maxId = Math.max(maxId, b.id);
+		}
+		// Fresh broadcasts go to the overlay too; older ones (e.g. the backlog at login) to the chatbox
+		// only, with their age. Without created_at (older server), the first response after linking
+		// is treated as backlog.
+		BroadcastDelivery.Plan plan = BroadcastDelivery.plan(items, serverNow, since == 0);
+		plan.getChatLines().forEach(this::showLocalMessage);
+		for (String text : plan.getOverlayTexts())
+		{
+			if (config.showBroadcastOverlay())
+			{
+				broadcastOverlay.add(text);
+			}
+			if (config.notifyOnBroadcast())
+			{
+				notifier.notify("[Plebcity] " + text);
+			}
 		}
 		if (maxId > since)
 		{
@@ -664,21 +678,20 @@ public class PlebcityPlugin extends Plugin
 		return url.newBuilder().addPathSegments(path).build();
 	}
 
-	/** Shows a broadcast in the chatbox and, unless it is old backlog, in the overlay and as a notification. */
-	private void showBroadcast(String text, boolean backlog)
+	/** Parses an ISO 8601 time, or returns null if it is missing or malformed. */
+	private static Instant parseInstant(String value)
 	{
-		showLocalMessage(text);
-		if (backlog)
+		if (value == null)
 		{
-			return;
+			return null;
 		}
-		if (config.showBroadcastOverlay())
+		try
 		{
-			broadcastOverlay.add(text);
+			return Instant.parse(value);
 		}
-		if (config.notifyOnBroadcast())
+		catch (DateTimeParseException e)
 		{
-			notifier.notify("[Plebcity] " + text);
+			return null;
 		}
 	}
 
