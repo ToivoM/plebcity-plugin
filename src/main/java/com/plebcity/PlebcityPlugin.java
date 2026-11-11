@@ -78,6 +78,8 @@ public class PlebcityPlugin extends Plugin
 	// Stored per RuneScape profile via ConfigManager; intentionally not @ConfigItems, so they are hidden.
 	private static final String KEY_TOKEN = "token";
 	private static final String KEY_LAST_ANNOUNCEMENT_ID = "lastAnnouncementId";
+	/** The API URL that KEY_LAST_ANNOUNCEMENT_ID belongs to; ids from another server are not used. */
+	private static final String KEY_LAST_ANNOUNCEMENT_API = "lastAnnouncementApi";
 
 	// Debug log: clock-like vars that change constantly and are never interesting.
 	private static final Set<Integer> IGNORED_VARPS = ImmutableSet.of(1042, 3077, 3078, 3079);
@@ -281,6 +283,12 @@ public class PlebcityPlugin extends Plugin
 		{
 			broadcastOverlay.clear();
 		}
+		if ("apiUrl".equals(event.getKey()))
+		{
+			// Broadcast ids from the old server mean nothing on the new one. (Other RuneScape profiles
+			// are covered too: the stored id is only used with the API URL it was saved for.)
+			resetLastAnnouncementId();
+		}
 		if ("showAnnouncements".equals(event.getKey()) || "apiUrl".equals(event.getKey()))
 		{
 			// Restart so a new API URL is used right away.
@@ -382,6 +390,8 @@ public class PlebcityPlugin extends Plugin
 				return;
 			}
 			configManager.setRSProfileConfiguration(PlebcityConfig.GROUP, KEY_TOKEN, resp.token);
+			// A new link may be to a new server or database: start broadcasts from scratch.
+			resetLastAnnouncementId();
 			configManager.unsetConfiguration(PlebcityConfig.GROUP, "linkCode");
 			showLocalMessage("Account linked to the Plebcity clan bot.");
 			executor.execute(this::fetchEvents);
@@ -462,19 +472,27 @@ public class PlebcityPlugin extends Plugin
 			.build();
 	}
 
-	/** Called on an OkHttp thread with broadcasts newer than since. */
+	/**
+	 * Called on an OkHttp thread with the broadcasts the server considers new for this since id. They are
+	 * not filtered by id: after a server or database change the server may return ids lower than since.
+	 */
 	private void handleBroadcasts(List<BroadcastPoller.Broadcast> broadcasts, long since, Instant serverNow)
 	{
-		long maxId = since;
 		List<BroadcastDelivery.Item> items = new ArrayList<>();
+		List<Long> ids = new ArrayList<>();
 		for (BroadcastPoller.Broadcast b : broadcasts)
 		{
-			if (b == null || b.id <= since || b.text == null)
+			if (b == null || b.text == null)
 			{
 				continue;
 			}
 			items.add(new BroadcastDelivery.Item(b.id, b.text, parseInstant(b.createdAt)));
-			maxId = Math.max(maxId, b.id);
+			ids.add(b.id);
+		}
+		long next = BroadcastCursor.next(since, ids);
+		if (next < since)
+		{
+			log.debug("Plebcity broadcast ids restarted on the server ({} -> {})", since, next);
 		}
 		// Fresh broadcasts go to the overlay too; older ones (e.g. the backlog at login) to the chatbox
 		// only, with their age. Without created_at (older server), the first response after linking
@@ -492,9 +510,9 @@ public class PlebcityPlugin extends Plugin
 				notifier.notify("[Plebcity] " + text);
 			}
 		}
-		if (maxId > since)
+		if (next != since)
 		{
-			configManager.setRSProfileConfiguration(PlebcityConfig.GROUP, KEY_LAST_ANNOUNCEMENT_ID, Long.toString(maxId));
+			setLastAnnouncementId(next);
 		}
 	}
 
@@ -651,19 +669,23 @@ public class PlebcityPlugin extends Plugin
 
 	private long getLastAnnouncementId()
 	{
-		String value = configManager.getRSProfileConfiguration(PlebcityConfig.GROUP, KEY_LAST_ANNOUNCEMENT_ID);
-		if (value == null)
-		{
-			return 0;
-		}
-		try
-		{
-			return Math.max(0, Long.parseLong(value));
-		}
-		catch (NumberFormatException e)
-		{
-			return 0;
-		}
+		return BroadcastCursor.since(
+			configManager.getRSProfileConfiguration(PlebcityConfig.GROUP, KEY_LAST_ANNOUNCEMENT_ID),
+			configManager.getRSProfileConfiguration(PlebcityConfig.GROUP, KEY_LAST_ANNOUNCEMENT_API),
+			config.apiUrl());
+	}
+
+	private void setLastAnnouncementId(long id)
+	{
+		configManager.setRSProfileConfiguration(PlebcityConfig.GROUP, KEY_LAST_ANNOUNCEMENT_ID, Long.toString(id));
+		configManager.setRSProfileConfiguration(PlebcityConfig.GROUP, KEY_LAST_ANNOUNCEMENT_API,
+			BroadcastCursor.normalizeApi(config.apiUrl()));
+	}
+
+	private void resetLastAnnouncementId()
+	{
+		configManager.unsetRSProfileConfiguration(PlebcityConfig.GROUP, KEY_LAST_ANNOUNCEMENT_ID);
+		configManager.unsetRSProfileConfiguration(PlebcityConfig.GROUP, KEY_LAST_ANNOUNCEMENT_API);
 	}
 
 	private HttpUrl apiUrl(String path)
