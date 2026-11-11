@@ -2,11 +2,16 @@ package com.plebcity;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
+import com.google.gson.annotations.SerializedName;
 import com.google.common.collect.ImmutableSet;
 import com.google.inject.Provides;
 import java.awt.Color;
 import java.io.IOException;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
@@ -32,7 +37,10 @@ import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.input.MouseManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.ui.ClientToolbar;
+import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.OverlayManager;
+import net.runelite.client.util.ImageUtil;
 import net.runelite.client.util.ColorUtil;
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -60,6 +68,7 @@ public class PlebcityPlugin extends Plugin
 {
 	private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
 	private static final long POLL_INTERVAL_SECONDS = 60;
+	private static final long EVENTS_REFRESH_SECONDS = 5 * 60;
 	static final Color PLEBCITY_COLOR = new Color(0x00, 0x8C, 0xFF);
 
 	// Stored per RuneScape profile via ConfigManager; intentionally not @ConfigItems, so they are hidden.
@@ -105,7 +114,14 @@ public class PlebcityPlugin extends Plugin
 	@Inject
 	private BroadcastOverlay broadcastOverlay;
 
+	@Inject
+	private ClientToolbar clientToolbar;
+
 	private ScheduledFuture<?> pollFuture;
+	private ScheduledFuture<?> eventsFuture;
+	private EventsPanel eventsPanel;
+	private NavigationButton eventsButton;
+	private volatile boolean eventsInFlight;
 
 	/** Local player's name, updated on the client thread every tick; null when logged out. */
 	private volatile String rsn;
@@ -127,6 +143,20 @@ public class PlebcityPlugin extends Plugin
 		overlayManager.add(broadcastOverlay);
 		mouseManager.registerMouseListener(broadcastOverlay.mouseListener);
 		pollFuture = executor.scheduleWithFixedDelay(this::pollAnnouncements, 10, POLL_INTERVAL_SECONDS, TimeUnit.SECONDS);
+
+		eventsPanel = new EventsPanel();
+		eventsPanel.setOnOpen(() -> executor.execute(this::fetchEvents));
+		eventsButton = NavigationButton.builder()
+			.tooltip("Plebcity events")
+			.icon(ImageUtil.loadImageResource(PlebcityPlugin.class, "events_icon.png"))
+			.priority(8)
+			.panel(eventsPanel)
+			.build();
+		if (config.showEventsPanel())
+		{
+			clientToolbar.addNavigation(eventsButton);
+		}
+		eventsFuture = executor.scheduleWithFixedDelay(this::fetchEvents, 15, EVENTS_REFRESH_SECONDS, TimeUnit.SECONDS);
 		log.debug("Plebcity started");
 	}
 
@@ -138,6 +168,13 @@ public class PlebcityPlugin extends Plugin
 			pollFuture.cancel(true);
 			pollFuture = null;
 		}
+		if (eventsFuture != null)
+		{
+			eventsFuture.cancel(true);
+			eventsFuture = null;
+		}
+		clientToolbar.removeNavigation(eventsButton);
+		eventsPanel.shutdown();
 		mouseManager.unregisterMouseListener(broadcastOverlay.mouseListener);
 		overlayManager.remove(broadcastOverlay);
 		broadcastOverlay.clear();
@@ -171,11 +208,14 @@ public class PlebcityPlugin extends Plugin
 			{
 				loggingIn = false;
 				loggedInAtMillis = System.currentTimeMillis();
+				// Give RuneLite a moment to switch to this account's profile, where the token is stored.
+				executor.schedule(this::fetchEvents, 5, TimeUnit.SECONDS);
 			}
 		}
 		else if (state == GameState.LOGIN_SCREEN)
 		{
 			rsn = null;
+			eventsPanel.showStatus(EventsPanel.Status.NOT_LOGGED_IN);
 		}
 	}
 
@@ -202,6 +242,18 @@ public class PlebcityPlugin extends Plugin
 		if (!PlebcityConfig.GROUP.equals(event.getGroup()))
 		{
 			return;
+		}
+		if ("showEventsPanel".equals(event.getKey()))
+		{
+			if (config.showEventsPanel())
+			{
+				clientToolbar.addNavigation(eventsButton);
+				executor.execute(this::fetchEvents);
+			}
+			else
+			{
+				clientToolbar.removeNavigation(eventsButton);
+			}
 		}
 		if ("showBroadcastOverlay".equals(event.getKey()) && !config.showBroadcastOverlay())
 		{
@@ -304,10 +356,17 @@ public class PlebcityPlugin extends Plugin
 			configManager.setRSProfileConfiguration(PlebcityConfig.GROUP, KEY_TOKEN, resp.token);
 			configManager.unsetConfiguration(PlebcityConfig.GROUP, "linkCode");
 			showLocalMessage("Account linked to the Plebcity clan bot.");
+			executor.execute(this::fetchEvents);
 			log.debug("Plebcity linked as {}", name);
 		}, status ->
 		{
-			if (status == 400 || status == 404 || status == 410)
+			if (status == -1)
+			{
+				// Network problem: allow another try with the same code later.
+				lastAttemptedCode = null;
+				showLocalMessage("Linking failed: could not reach the Plebcity API. Check the API URL.");
+			}
+			else if (status == 400 || status == 404 || status == 410)
 			{
 				showLocalMessage("Linking failed: the code is invalid, used or expired. Ask an admin for a new one.");
 			}
@@ -378,10 +437,7 @@ public class PlebcityPlugin extends Plugin
 			{
 				if (status == 401)
 				{
-					// Token revoked or replaced (e.g. relinked elsewhere). Forget it so a new code can be used.
-					log.warn("Plebcity token rejected by API; clearing it");
-					configManager.unsetRSProfileConfiguration(PlebcityConfig.GROUP, KEY_TOKEN);
-					showLocalMessage("Your Plebcity link is no longer valid. Enter a new link code in the plugin settings.");
+					handleUnauthorized();
 				}
 			}, () -> pollInFlight = false);
 		}
@@ -391,6 +447,110 @@ public class PlebcityPlugin extends Plugin
 			pollInFlight = false;
 			log.warn("Plebcity announcement poll failed", e);
 		}
+	}
+
+	// ------------------------------------------------------------------
+	// Clan events (sidebar panel)
+	// ------------------------------------------------------------------
+
+	/** Loads events for the panel. Runs on the shared executor, never on the client thread or EDT. */
+	private void fetchEvents()
+	{
+		try
+		{
+			if (!config.showEventsPanel() || eventsInFlight)
+			{
+				return;
+			}
+			if (configManager.getRSProfileKey() == null)
+			{
+				eventsPanel.showStatus(EventsPanel.Status.NOT_LOGGED_IN);
+				return;
+			}
+			final String token = getToken();
+			if (token == null)
+			{
+				eventsPanel.showStatus(EventsPanel.Status.NOT_LINKED);
+				return;
+			}
+			HttpUrl url = apiUrl("api/events");
+			if (url == null)
+			{
+				eventsPanel.showStatus(EventsPanel.Status.ERROR);
+				return;
+			}
+			Request request = new Request.Builder()
+				.url(url)
+				.header("Authorization", "Bearer " + token)
+				.get()
+				.build();
+
+			eventsInFlight = true;
+			enqueue(request, "events", body ->
+			{
+				EventsResponse response = gson.fromJson(body, EventsResponse.class);
+				List<ClanEvent> events = new ArrayList<>();
+				if (response != null)
+				{
+					addEvents(events, response.ongoing);
+					addEvents(events, response.upcoming);
+					addEvents(events, response.past);
+				}
+				eventsPanel.showEvents(events);
+			}, status ->
+			{
+				if (status == 401)
+				{
+					handleUnauthorized();
+				}
+				else
+				{
+					eventsPanel.showStatus(EventsPanel.Status.ERROR);
+				}
+			}, () -> eventsInFlight = false);
+		}
+		catch (Exception e)
+		{
+			eventsInFlight = false;
+			log.warn("Plebcity events fetch failed", e);
+		}
+	}
+
+	private static void addEvents(List<ClanEvent> into, List<EventDto> dtos)
+	{
+		if (dtos == null)
+		{
+			return;
+		}
+		for (EventDto d : dtos)
+		{
+			if (d == null || d.id == null || d.name == null || d.startTime == null || d.endTime == null)
+			{
+				continue;
+			}
+			try
+			{
+				into.add(new ClanEvent(d.id, d.name, d.description, d.location,
+					Instant.parse(d.startTime), Instant.parse(d.endTime), d.status));
+			}
+			catch (DateTimeParseException e)
+			{
+				log.debug("Plebcity skipping event {} with bad time", d.id);
+			}
+		}
+	}
+
+	/** The API rejected our token (revoked, or relinked elsewhere): forget it so a new code can be used. */
+	private void handleUnauthorized()
+	{
+		if (getToken() == null)
+		{
+			return; // already handled by another request
+		}
+		log.warn("Plebcity token rejected by API; clearing it");
+		configManager.unsetRSProfileConfiguration(PlebcityConfig.GROUP, KEY_TOKEN);
+		showLocalMessage("Your Plebcity link is no longer valid. Enter a new link code in the plugin settings.");
+		eventsPanel.showStatus(EventsPanel.Status.NOT_LINKED);
 	}
 
 	// ------------------------------------------------------------------
@@ -500,7 +660,7 @@ public class PlebcityPlugin extends Plugin
 	 * Runs the request on OkHttp's thread pool. All failures are logged; nothing is thrown.
 	 *
 	 * @param onSuccess called with the response body for 2xx responses
-	 * @param onHttpError optional, called with the status code for non-2xx responses
+	 * @param onHttpError optional, called with the status code for non-2xx responses, or -1 if the request failed
 	 * @param onDone optional, always called once the request has finished
 	 */
 	private void enqueue(Request request, String what, Consumer<String> onSuccess, Consumer<Integer> onHttpError, Runnable onDone)
@@ -511,6 +671,17 @@ public class PlebcityPlugin extends Plugin
 			public void onFailure(Call call, IOException e)
 			{
 				log.warn("Plebcity {} request failed: {}", what, e.getMessage());
+				try
+				{
+					if (onHttpError != null)
+					{
+						onHttpError.accept(-1);
+					}
+				}
+				catch (Exception ex)
+				{
+					log.warn("Plebcity {} error handling failed", what, ex);
+				}
 				finish();
 			}
 
@@ -565,5 +736,25 @@ public class PlebcityPlugin extends Plugin
 	{
 		long id;
 		String text;
+	}
+
+	private static class EventsResponse
+	{
+		List<EventDto> ongoing;
+		List<EventDto> upcoming;
+		List<EventDto> past;
+	}
+
+	private static class EventDto
+	{
+		String id;
+		String name;
+		String description;
+		String location;
+		@SerializedName("start_time")
+		String startTime;
+		@SerializedName("end_time")
+		String endTime;
+		String status;
 	}
 }

@@ -18,6 +18,11 @@ Plebcity clan bot (a Discord bot with a small HTTP API, run by the clan).
 
   These messages are only shown locally. Nobody else sees them, and nothing is typed or sent in game.
   The first time you poll after linking, the latest few broadcasts are shown in the chatbox only.
+- **Clan events panel.** A calendar button in the sidebar opens a list of the clan's Discord events,
+  grouped as *Live now*, *Upcoming* and *Past* (last 30 days). Each event shows its time in your own
+  time zone, how long until it starts or ends, the location, and a description. Click a card to see the
+  full description. The list is loaded when you open the panel and every 5 minutes, but only when your
+  account is linked. You can hide the button with *Events panel*.
 - **Clan coffer tracking** (off by default, setting *Report clan coffer events*). When a clan member
   deposits to or withdraws from the clan coffer, the game sends a clan broadcast to everyone in clan chat,
   for example `ToivoM has deposited 1,000,000 coins into the coffer.` When this setting is on and you are
@@ -38,6 +43,7 @@ That server is not run, controlled or verified by RuneLite or Jagex.
 |------|---------|-----------|
 | You enter a link code | `POST /api/link` | the link code and your RuneScape name (RSN) |
 | Every 60 s, if *Receive broadcasts* is on and you are linked | `GET /api/announcements?since=<id>` | your token and the ID of the last announcement you saw |
+| When you open the events panel, and every 5 min, if *Events panel* is on and you are linked | `GET /api/events` | your token |
 | A coffer deposit/withdrawal is broadcast in clan chat, *Report clan coffer events* is on and you are linked | `POST /api/events/coffer` | your token and the parsed event (see below) |
 
 ### Clan coffer events
@@ -70,6 +76,7 @@ No requests are made until you enter a link code or turn on *Receive broadcasts*
    - **Link code**: the code from `/linkita`. Log in to the game, and the plugin links your account and
      then clears the field.
    - **Receive broadcasts**: turn it on to get clan broadcasts in chat and above the chatbox.
+   - **Events panel**: on by default. Shows the clan events button in the sidebar.
    - **Report clan coffer events**: turn it on to report clan coffer deposits and withdrawals to the
      clan bot.
 

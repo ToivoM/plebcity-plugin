@@ -84,11 +84,22 @@ public interface PlebcityConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "showEventsPanel",
+		name = "Events panel",
+		description = "Show the Plebcity events button in the sidebar. Events are loaded only when your account is linked.",
+		position = 7
+	)
+	default boolean showEventsPanel()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "reportCoffer",
 		name = "Report clan coffer events",
 		description = "Send clan coffer deposits and withdrawals announced in clan chat (player name, amount, type) to the Plebcity API",
 		warning = THIRD_PARTY_WARNING,
-		position = 7
+		position = 8
 	)
 	default boolean reportCoffer()
 	{
@@ -99,7 +110,7 @@ public interface PlebcityConfig extends Config
 		keyName = "debugLogChat",
 		name = "Debug: log chat & varbits",
 		description = "Write every chat message and varbit/varp change to the client log (for development)",
-		position = 8
+		position = 9
 	)
 	default boolean debugLogChat()
 	{
