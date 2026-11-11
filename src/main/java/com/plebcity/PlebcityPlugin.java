@@ -210,7 +210,10 @@ public class PlebcityPlugin extends Plugin
 		CofferMessageParser.CofferEvent coffer = CofferMessageParser.parse(event.getMessage());
 		if (coffer != null)
 		{
-			sendCofferEvent(coffer);
+			if (config.reportCoffer())
+			{
+				sendCofferEvent(coffer);
+			}
 		}
 		else if (debug && event.getMessage() != null
 			&& CofferMessageParser.clean(event.getMessage()).toLowerCase().contains("coffer"))

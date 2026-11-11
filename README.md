@@ -10,9 +10,10 @@ Plebcity clan bot (a Discord bot with a small HTTP API, run by the clan).
 - **Clan announcements.** When *Show announcements* is on, the plugin asks the API for new announcements
   every 60 seconds and shows them in your chatbox as `[Plebcity] ...`. These messages are only shown
   locally. Nobody else sees them, and nothing is typed or sent in game.
-- **Clan coffer tracking.** The game announces every clan coffer deposit and withdrawal in clan chat
-  (for example `ToivoM has deposited 1,000,000 coins into the coffer.`). When you are linked, the plugin
-  reads these announcements and reports them to the clan bot. Several members may report the same event,
+- **Clan coffer tracking** (off by default, setting *Report clan coffer events*). When a clan member
+  deposits to or withdraws from the clan coffer, the game sends a clan broadcast to everyone in clan chat,
+  for example `ToivoM has deposited 1,000,000 coins into the coffer.` When this setting is on and you are
+  linked, the plugin reports these broadcasts to the clan bot. Several members may report the same event,
   and the server removes the duplicates. The player who deposits does not need the plugin.
 - **Debug logging** (off by default). Writes chat messages and varbit changes to the RuneLite client log,
   on your own machine only. This helps with development. Debug output is never sent anywhere, and the
@@ -29,12 +30,29 @@ That server is not run, controlled or verified by RuneLite or Jagex.
 |------|---------|-----------|
 | You enter a link code | `POST /api/link` | the link code and your RuneScape name (RSN) |
 | Every 60 s, if *Show announcements* is on and you are linked | `GET /api/announcements?since=<id>` | your token and the ID of the last announcement you saw |
-| A coffer deposit/withdrawal is announced in clan chat and you are linked | `POST /api/events/coffer` | your token, the event type (deposit/withdraw), the name of the clan member in the announcement, the amount, and your computer's clock time |
+| A coffer deposit/withdrawal is broadcast in clan chat, *Report clan coffer events* is on and you are linked | `POST /api/events/coffer` | your token and the parsed event (see below) |
+
+### Clan coffer events
+
+When *Report clan coffer events* is on, the plugin sends exactly these fields for each coffer broadcast:
+
+| Field | Example | Meaning |
+|-------|---------|---------|
+| `type` | `deposit` or `withdraw` | whether coins went into or out of the coffer |
+| `player` | `ToivoM` | the name of the clan member who deposited or withdrew (often not you) |
+| `amount` | `1000000` | number of coins |
+| `clientTime` | `1794429148000` | your computer's clock time in milliseconds |
+
+This data comes **only** from the clan's own broadcast messages ("... has deposited/withdrawn ... coins
+into/from the coffer."). The game already shows these broadcasts to every clan member who is in clan chat.
+The plugin does not read or send any other chat messages, including other players' clan chat
+messages. It never sends the raw message text, only the four fields above.
 
 Like any HTTP request, every call shows your **IP address** to the server. The server stores your RSN,
 a hash of your token, and the coffer events you report. Admins can see this data in Discord.
 
-No requests are made until you enter a link code or turn on *Show announcements*.
+No requests are made until you enter a link code or turn on *Show announcements* or
+*Report clan coffer events*. Both settings are off by default.
 
 ## Installation
 
@@ -44,6 +62,8 @@ No requests are made until you enter a link code or turn on *Show announcements*
    - **Link code**: the code from `/linkita`. Log in to the game, and the plugin links your account and
      then clears the field.
    - **Show announcements**: turn it on to get clan announcements in chat.
+   - **Report clan coffer events**: turn it on to report clan coffer deposits and withdrawals to the
+     clan bot.
 
 ## Development
 

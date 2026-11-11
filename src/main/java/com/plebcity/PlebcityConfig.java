@@ -47,10 +47,22 @@ public interface PlebcityConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "reportCoffer",
+		name = "Report clan coffer events",
+		description = "Send clan coffer deposits and withdrawals announced in clan chat (player name, amount, type) to the Plebcity API",
+		warning = THIRD_PARTY_WARNING,
+		position = 4
+	)
+	default boolean reportCoffer()
+	{
+		return false;
+	}
+
+	@ConfigItem(
 		keyName = "debugLogChat",
 		name = "Debug: log chat & varbits",
 		description = "Write every chat message and varbit/varp change to the client log (for development)",
-		position = 4
+		position = 5
 	)
 	default boolean debugLogChat()
 	{
