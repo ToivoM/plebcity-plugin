@@ -2,12 +2,13 @@ package com.plebcity;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
+import com.google.common.collect.ImmutableSet;
 import com.google.inject.Provides;
 import java.awt.Color;
 import java.io.IOException;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -62,6 +63,12 @@ public class PlebcityPlugin extends Plugin
 	private static final String KEY_TOKEN = "token";
 	private static final String KEY_LAST_ANNOUNCEMENT_ID = "lastAnnouncementId";
 
+	// Debug log: clock-like vars that change constantly and are never interesting.
+	private static final Set<Integer> IGNORED_VARPS = ImmutableSet.of(1042, 3077, 3078, 3079);
+	private static final Set<Integer> IGNORED_VARBITS = ImmutableSet.of(8354, 12391, 12392);
+	/** Debug log: don't log var changes this soon after logging in (the client receives hundreds then). */
+	private static final long VAR_LOG_LOGIN_GRACE_MILLIS = 5_000;
+
 	@Inject
 	private Client client;
 
@@ -93,6 +100,10 @@ public class PlebcityPlugin extends Plugin
 	private volatile String lastAttemptedCode;
 	private volatile boolean linkInFlight;
 	private volatile boolean pollInFlight;
+	/** Client thread only: whether the next LOGGED_IN state is a fresh login (or world hop). */
+	private boolean loggingIn;
+	/** Client thread only: when we last finished logging in, used to mute the burst of var changes at login. */
+	private long loggedInAtMillis;
 
 	@Override
 	protected void startUp()
@@ -129,9 +140,18 @@ public class PlebcityPlugin extends Plugin
 	public void onGameStateChanged(GameStateChanged event)
 	{
 		GameState state = event.getGameState();
-		if (state == GameState.LOGGED_IN)
+		if (state == GameState.LOGGING_IN || state == GameState.HOPPING)
+		{
+			loggingIn = true;
+		}
+		else if (state == GameState.LOGGED_IN)
 		{
 			linkCheckPending = true;
+			if (loggingIn)
+			{
+				loggingIn = false;
+				loggedInAtMillis = System.currentTimeMillis();
+			}
 		}
 		else if (state == GameState.LOGIN_SCREEN)
 		{
@@ -173,22 +193,45 @@ public class PlebcityPlugin extends Plugin
 	@Subscribe
 	public void onChatMessage(ChatMessage event)
 	{
-		if (config.debugLogChat())
+		final boolean debug = config.debugLogChat();
+		if (debug)
 		{
-			// Opt-in diagnostics, used to find out how a clan coffer deposit shows up in game.
+			// Opt-in diagnostics, written to the local client log only.
 			log.info("[Plebcity debug] chat type={} name={} message={}",
 				event.getType(), event.getName(), event.getMessage());
+		}
+
+		if (event.getType() != ChatMessageType.CLAN_MESSAGE)
+		{
+			return;
+		}
+
+		// Only the parsed coffer event (type, player, amount) is ever sent to the API, never the raw message.
+		CofferMessageParser.CofferEvent coffer = CofferMessageParser.parse(event.getMessage());
+		if (coffer != null)
+		{
+			sendCofferEvent(coffer);
+		}
+		else if (debug && event.getMessage() != null
+			&& CofferMessageParser.clean(event.getMessage()).toLowerCase().contains("coffer"))
+		{
+			// In case Jagex changes the message format.
+			log.info("[Plebcity debug] unrecognised coffer message: {}", event.getMessage());
 		}
 	}
 
 	@Subscribe
 	public void onVarbitChanged(VarbitChanged event)
 	{
-		if (config.debugLogChat())
+		if (!config.debugLogChat()
+			|| System.currentTimeMillis() - loggedInAtMillis < VAR_LOG_LOGIN_GRACE_MILLIS
+			|| IGNORED_VARPS.contains(event.getVarpId())
+			|| IGNORED_VARBITS.contains(event.getVarbitId()))
 		{
-			log.info("[Plebcity debug] var varbitId={} varpId={} value={}",
-				event.getVarbitId(), event.getVarpId(), event.getValue());
+			return;
 		}
+		log.info("[Plebcity debug] var varbitId={} varpId={} value={}",
+			event.getVarbitId(), event.getVarpId(), event.getValue());
 	}
 
 	// ------------------------------------------------------------------
@@ -325,15 +368,15 @@ public class PlebcityPlugin extends Plugin
 	// ------------------------------------------------------------------
 
 	/**
-	 * Reports a clan coffer deposit to the Plebcity API.
-	 * Not called anywhere yet: detection of deposits will be added once we know how they appear in game.
+	 * Reports a coffer deposit/withdrawal seen in clan chat. The reporter is identified by the token;
+	 * the player who deposited may be someone else in the clan.
 	 */
-	public void sendCofferDeposit(long amount)
+	private void sendCofferEvent(CofferMessageParser.CofferEvent event)
 	{
 		final String token = getToken();
 		if (token == null)
 		{
-			log.debug("Plebcity not linked; not sending coffer deposit");
+			log.debug("Plebcity not linked; not sending coffer event");
 			return;
 		}
 		HttpUrl url = apiUrl("api/events/coffer");
@@ -341,12 +384,19 @@ public class PlebcityPlugin extends Plugin
 		{
 			return;
 		}
+		Map<String, Object> body = new HashMap<>();
+		body.put("type", event.getType().apiName);
+		body.put("player", event.getPlayer());
+		body.put("amount", event.getAmount());
+		body.put("clientTime", System.currentTimeMillis());
+
 		Request request = new Request.Builder()
 			.url(url)
 			.header("Authorization", "Bearer " + token)
-			.post(RequestBody.create(JSON, gson.toJson(Collections.singletonMap("amount", amount))))
+			.post(RequestBody.create(JSON, gson.toJson(body)))
 			.build();
-		enqueue(request, "coffer", body -> log.debug("Plebcity coffer deposit of {} sent", amount), null, null);
+		enqueue(request, "coffer", response -> log.debug("Plebcity coffer {} by {} of {} sent",
+			event.getType().apiName, event.getPlayer(), event.getAmount()), null, null);
 	}
 
 	// ------------------------------------------------------------------

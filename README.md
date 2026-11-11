@@ -10,10 +10,13 @@ Plebcity clan bot (a Discord bot with a small HTTP API, run by the clan).
 - **Clan announcements.** When *Show announcements* is on, the plugin asks the API for new announcements
   every 60 seconds and shows them in your chatbox as `[Plebcity] ...`. These messages are only shown
   locally. Nobody else sees them, and nothing is typed or sent in game.
-- **Clan coffer deposits.** Planned. The plugin will report your own clan coffer deposits to the clan bot.
-  Detection is not implemented yet.
+- **Clan coffer tracking.** The game announces every clan coffer deposit and withdrawal in clan chat
+  (for example `ToivoM has deposited 1,000,000 coins into the coffer.`). When you are linked, the plugin
+  reads these announcements and reports them to the clan bot. Several members may report the same event,
+  and the server removes the duplicates. The player who deposits does not need the plugin.
 - **Debug logging** (off by default). Writes chat messages and varbit changes to the RuneLite client log,
-  on your own machine only. This helps with development.
+  on your own machine only. This helps with development. Debug output is never sent anywhere, and the
+  plugin never sends raw clan chat messages to the API. It only sends the parsed coffer event.
 
 The plugin **never** sends anything to the game server for you: no chat messages, no menu actions, no input.
 
@@ -26,10 +29,10 @@ That server is not run, controlled or verified by RuneLite or Jagex.
 |------|---------|-----------|
 | You enter a link code | `POST /api/link` | the link code and your RuneScape name (RSN) |
 | Every 60 s, if *Show announcements* is on and you are linked | `GET /api/announcements?since=<id>` | your token and the ID of the last announcement you saw |
-| (future) You deposit to the clan coffer | `POST /api/events/coffer` | your token and the deposit amount |
+| A coffer deposit/withdrawal is announced in clan chat and you are linked | `POST /api/events/coffer` | your token, the event type (deposit/withdraw), the name of the clan member in the announcement, the amount, and your computer's clock time |
 
 Like any HTTP request, every call shows your **IP address** to the server. The server stores your RSN,
-a hash of your token, and your coffer deposits. Admins can see this data in Discord.
+a hash of your token, and the coffer events you report. Admins can see this data in Discord.
 
 No requests are made until you enter a link code or turn on *Show announcements*.
 
