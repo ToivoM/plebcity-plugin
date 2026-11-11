@@ -27,7 +27,7 @@ public interface PlebcityConfig extends Config
 	@ConfigItem(
 		keyName = "linkCode",
 		name = "Link code",
-		description = "One-time code from a clan admin (Discord /linkita). Cleared automatically after a successful link.",
+		description = "One-time code from a clan admin (Discord /link). Cleared automatically after a successful link.",
 		warning = THIRD_PARTY_WARNING,
 		position = 2
 	)
@@ -39,7 +39,7 @@ public interface PlebcityConfig extends Config
 	@ConfigItem(
 		keyName = "showAnnouncements",
 		name = "Receive broadcasts",
-		description = "Fetch clan broadcasts (Discord /tiedote) from the Plebcity API every 60 seconds and show them in your chatbox",
+		description = "Fetch clan broadcasts (Discord /broadcast) from the Plebcity API every 60 seconds and show them in your chatbox",
 		warning = THIRD_PARTY_WARNING,
 		position = 3
 	)

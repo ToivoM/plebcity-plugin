@@ -5,7 +5,7 @@ Plebcity clan bot (a Discord bot with a small HTTP API, run by the clan).
 
 ## What it does
 
-- **Account linking.** A clan admin creates a one-time code in Discord (`/linkita`). You paste it into the
+- **Account linking.** A clan admin creates a one-time code in Discord (`/link`). You paste it into the
   plugin settings, and the plugin swaps it for a personal token that is stored in your RuneLite profile.
 - **Clan broadcasts.** When *Receive broadcasts* is on, the plugin asks the API for new broadcasts
   (sent by clan admins in Discord) every 60 seconds. Each new broadcast is shown:
@@ -73,7 +73,7 @@ No requests are made until you enter a link code or turn on *Receive broadcasts*
 1. In RuneLite, open the **Plugin Hub** and search for **Plebcity**. Install it.
 2. Open the plugin settings:
    - **API URL**: the address your clan admin gives you.
-   - **Link code**: the code from `/linkita`. Log in to the game, and the plugin links your account and
+   - **Link code**: the code from `/link`. Log in to the game, and the plugin links your account and
      then clears the field.
    - **Receive broadcasts**: turn it on to get clan broadcasts in chat and above the chatbox.
    - **Events panel**: on by default. Shows the clan events button in the sidebar.
