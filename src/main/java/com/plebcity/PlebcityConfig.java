@@ -3,6 +3,8 @@ package com.plebcity;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
+import net.runelite.client.config.Range;
+import net.runelite.client.config.Units;
 
 @ConfigGroup(PlebcityConfig.GROUP)
 public interface PlebcityConfig extends Config
@@ -36,8 +38,8 @@ public interface PlebcityConfig extends Config
 
 	@ConfigItem(
 		keyName = "showAnnouncements",
-		name = "Show announcements",
-		description = "Fetch clan announcements from the Plebcity API every 60 seconds and show them in your chatbox",
+		name = "Receive broadcasts",
+		description = "Fetch clan broadcasts (Discord /tiedote) from the Plebcity API every 60 seconds and show them in your chatbox",
 		warning = THIRD_PARTY_WARNING,
 		position = 3
 	)
@@ -47,11 +49,46 @@ public interface PlebcityConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "showBroadcastOverlay",
+		name = "Broadcast overlay",
+		description = "Also show new broadcasts in a box above the chatbox",
+		position = 4
+	)
+	default boolean showBroadcastOverlay()
+	{
+		return true;
+	}
+
+	@Range(min = 5, max = 300)
+	@Units(Units.SECONDS)
+	@ConfigItem(
+		keyName = "broadcastDurationSeconds",
+		name = "Broadcast duration",
+		description = "How long a broadcast stays above the chatbox",
+		position = 5
+	)
+	default int broadcastDurationSeconds()
+	{
+		return 30;
+	}
+
+	@ConfigItem(
+		keyName = "notifyOnBroadcast",
+		name = "Notify on broadcast",
+		description = "Send a RuneLite notification when a new broadcast arrives",
+		position = 6
+	)
+	default boolean notifyOnBroadcast()
+	{
+		return false;
+	}
+
+	@ConfigItem(
 		keyName = "reportCoffer",
 		name = "Report clan coffer events",
 		description = "Send clan coffer deposits and withdrawals announced in clan chat (player name, amount, type) to the Plebcity API",
 		warning = THIRD_PARTY_WARNING,
-		position = 4
+		position = 7
 	)
 	default boolean reportCoffer()
 	{
@@ -62,7 +99,7 @@ public interface PlebcityConfig extends Config
 		keyName = "debugLogChat",
 		name = "Debug: log chat & varbits",
 		description = "Write every chat message and varbit/varp change to the client log (for development)",
-		position = 5
+		position = 8
 	)
 	default boolean debugLogChat()
 	{

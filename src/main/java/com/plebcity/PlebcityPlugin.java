@@ -23,13 +23,16 @@ import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.VarbitChanged;
+import net.runelite.client.Notifier;
 import net.runelite.client.chat.ChatMessageManager;
 import net.runelite.client.chat.QueuedMessage;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
+import net.runelite.client.input.MouseManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.ColorUtil;
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -57,7 +60,7 @@ public class PlebcityPlugin extends Plugin
 {
 	private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
 	private static final long POLL_INTERVAL_SECONDS = 60;
-	private static final Color PLEBCITY_COLOR = new Color(0x00, 0x8C, 0xFF);
+	static final Color PLEBCITY_COLOR = new Color(0x00, 0x8C, 0xFF);
 
 	// Stored per RuneScape profile via ConfigManager; intentionally not @ConfigItems, so they are hidden.
 	private static final String KEY_TOKEN = "token";
@@ -90,6 +93,18 @@ public class PlebcityPlugin extends Plugin
 	@Inject
 	private ScheduledExecutorService executor;
 
+	@Inject
+	private OverlayManager overlayManager;
+
+	@Inject
+	private MouseManager mouseManager;
+
+	@Inject
+	private Notifier notifier;
+
+	@Inject
+	private BroadcastOverlay broadcastOverlay;
+
 	private ScheduledFuture<?> pollFuture;
 
 	/** Local player's name, updated on the client thread every tick; null when logged out. */
@@ -109,6 +124,8 @@ public class PlebcityPlugin extends Plugin
 	protected void startUp()
 	{
 		linkCheckPending = true;
+		overlayManager.add(broadcastOverlay);
+		mouseManager.registerMouseListener(broadcastOverlay.mouseListener);
 		pollFuture = executor.scheduleWithFixedDelay(this::pollAnnouncements, 10, POLL_INTERVAL_SECONDS, TimeUnit.SECONDS);
 		log.debug("Plebcity started");
 	}
@@ -121,6 +138,9 @@ public class PlebcityPlugin extends Plugin
 			pollFuture.cancel(true);
 			pollFuture = null;
 		}
+		mouseManager.unregisterMouseListener(broadcastOverlay.mouseListener);
+		overlayManager.remove(broadcastOverlay);
+		broadcastOverlay.clear();
 		rsn = null;
 		lastAttemptedCode = null;
 		log.debug("Plebcity stopped");
@@ -182,6 +202,10 @@ public class PlebcityPlugin extends Plugin
 		if (!PlebcityConfig.GROUP.equals(event.getGroup()))
 		{
 			return;
+		}
+		if ("showBroadcastOverlay".equals(event.getKey()) && !config.showBroadcastOverlay())
+		{
+			broadcastOverlay.clear();
 		}
 		if ("linkCode".equals(event.getKey()) || "apiUrl".equals(event.getKey()))
 		{
@@ -334,13 +358,16 @@ public class PlebcityPlugin extends Plugin
 					return;
 				}
 				long maxId = since;
+				// The first poll after linking returns the latest few broadcasts as a backlog:
+				// put those in the chatbox only, not in the overlay or notifications.
+				final boolean backlog = since == 0;
 				for (Announcement a : list)
 				{
 					if (a == null || a.id <= since || a.text == null)
 					{
 						continue;
 					}
-					showLocalMessage(a.text);
+					showBroadcast(a.text, backlog);
 					maxId = Math.max(maxId, a.id);
 				}
 				if (maxId > since)
@@ -439,6 +466,24 @@ public class PlebcityPlugin extends Plugin
 			return null;
 		}
 		return url.newBuilder().addPathSegments(path).build();
+	}
+
+	/** Shows a broadcast in the chatbox and, unless it is old backlog, in the overlay and as a notification. */
+	private void showBroadcast(String text, boolean backlog)
+	{
+		showLocalMessage(text);
+		if (backlog)
+		{
+			return;
+		}
+		if (config.showBroadcastOverlay())
+		{
+			broadcastOverlay.add(text);
+		}
+		if (config.notifyOnBroadcast())
+		{
+			notifier.notify("[Plebcity] " + text);
+		}
 	}
 
 	/** Shows a message in the local chatbox only. Nothing is sent to the game server. */

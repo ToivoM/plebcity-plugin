@@ -7,9 +7,17 @@ Plebcity clan bot (a Discord bot with a small HTTP API, run by the clan).
 
 - **Account linking.** A clan admin creates a one-time code in Discord (`/linkita`). You paste it into the
   plugin settings, and the plugin swaps it for a personal token that is stored in your RuneLite profile.
-- **Clan announcements.** When *Show announcements* is on, the plugin asks the API for new announcements
-  every 60 seconds and shows them in your chatbox as `[Plebcity] ...`. These messages are only shown
-  locally. Nobody else sees them, and nothing is typed or sent in game.
+- **Clan broadcasts.** When *Receive broadcasts* is on, the plugin asks the API for new broadcasts
+  (sent by clan admins in Discord) every 60 seconds. Each new broadcast is shown:
+  - in your chatbox as `[Plebcity] ...`
+  - in a box above the chatbox (*Broadcast overlay*, on by default). The box closes after
+    *Broadcast duration* (30 s by default). You can also close it with its **X** button or the
+    right-click option **Dismiss**. If several broadcasts arrive, they are shown one at a time with a
+    counter such as `1/3`.
+  - as a RuneLite notification, if *Notify on broadcast* is on (off by default).
+
+  These messages are only shown locally. Nobody else sees them, and nothing is typed or sent in game.
+  The first time you poll after linking, the latest few broadcasts are shown in the chatbox only.
 - **Clan coffer tracking** (off by default, setting *Report clan coffer events*). When a clan member
   deposits to or withdraws from the clan coffer, the game sends a clan broadcast to everyone in clan chat,
   for example `ToivoM has deposited 1,000,000 coins into the coffer.` When this setting is on and you are
@@ -29,7 +37,7 @@ That server is not run, controlled or verified by RuneLite or Jagex.
 | When | Request | Data sent |
 |------|---------|-----------|
 | You enter a link code | `POST /api/link` | the link code and your RuneScape name (RSN) |
-| Every 60 s, if *Show announcements* is on and you are linked | `GET /api/announcements?since=<id>` | your token and the ID of the last announcement you saw |
+| Every 60 s, if *Receive broadcasts* is on and you are linked | `GET /api/announcements?since=<id>` | your token and the ID of the last announcement you saw |
 | A coffer deposit/withdrawal is broadcast in clan chat, *Report clan coffer events* is on and you are linked | `POST /api/events/coffer` | your token and the parsed event (see below) |
 
 ### Clan coffer events
@@ -51,7 +59,7 @@ messages. It never sends the raw message text, only the four fields above.
 Like any HTTP request, every call shows your **IP address** to the server. The server stores your RSN,
 a hash of your token, and the coffer events you report. Admins can see this data in Discord.
 
-No requests are made until you enter a link code or turn on *Show announcements* or
+No requests are made until you enter a link code or turn on *Receive broadcasts* or
 *Report clan coffer events*. Both settings are off by default.
 
 ## Installation
@@ -61,7 +69,7 @@ No requests are made until you enter a link code or turn on *Show announcements*
    - **API URL**: the address your clan admin gives you.
    - **Link code**: the code from `/linkita`. Log in to the game, and the plugin links your account and
      then clears the field.
-   - **Show announcements**: turn it on to get clan announcements in chat.
+   - **Receive broadcasts**: turn it on to get clan broadcasts in chat and above the chatbox.
    - **Report clan coffer events**: turn it on to report clan coffer deposits and withdrawals to the
      clan bot.
 
